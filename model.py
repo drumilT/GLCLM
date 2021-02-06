@@ -56,7 +56,7 @@ class UttEncoder(nn.Module):
       x_len: [batch_size,]
     Returns:
       enc_output: Tensor of size [batch_size, max_len, d_model].
-    """
+    """  
     batch_size, max_len = x_train.size()
     word_emb = self.word_emb(x_train)
     word_emb = self.dropout(word_emb)
