@@ -15,7 +15,7 @@ class Attn(nn.Module):
     self.w_att = nn.Linear(self.hparams.d_model, 1)
 
   def forward(self,H,atten_mask=None):
-    bsz,h_dim = H.shape
+    bsz,max_len,h_dim = H.shape
     assert(h_dim==self.hparams.d_model)
     att_src_hidden = torch.tanh(self.w_trg(H))
     att_src_weights = self.w_att(att_src_hidden).squeeze(2)
@@ -28,6 +28,7 @@ class Attn(nn.Module):
     att_src_weights = F.softmax(att_src_weights, dim=-1)
     att_src_weights = self.dropout(att_src_weights)
     ctx = torch.bmm(att_src_weights.unsqueeze(1), H).squeeze(1)
+    assert(ctx.shape[0]==bsz and ctx.shape[1]==self.hparams.d_model)
     return ctx
 
 class UttEncoder(nn.Module):
@@ -59,6 +60,7 @@ class UttEncoder(nn.Module):
       x_len: [batch_size,]
     Returns:
       enc_output: Tensor of size [batch_size, max_len, d_model].
+      ctx: Tensor of size [batch_size,d_model]
     """  
     batch_size, max_len = x_train.size()
     word_emb = self.word_emb(x_train)
@@ -76,37 +78,82 @@ class ContextEncoder(nn.Module):
     super(ContextEncoder, self).__init__()
 
     self.hparams = hparams
-    self.layer = nn.LSTM(self.hparams.d_word_vec,
-                         self.hparams.d_model,
+    self.layer = nn.LSTM(self.hparams.d_model,
+                         self.hparams.d_ctx_embed,
                          num_layers=hparams.n_layers,
                          batch_first=True,
                          bidirectional=True,
                          dropout=hparams.dropout)
     self.dropout = nn.Dropout(self.hparams.dropout)
 
-  def forward(self, atten_enc,enc_mask):
-    """Performs a forward pass.
-    Args:
-      x_train: Torch Tensor of size [batch_size, max_len]
-      x_mask: Torch Tensor of size [batch_size, max_len]. 1 means to ignore a
-        position.
-      x_len: [batch_size,]
-    Returns:
-      enc_output: Tensor of size [batch_size, max_len, d_model].
-    """
-    context_output, (ht, ct) = self.layer(atten_enc)
+  def forward(self, atten_enc,x_len,enc_mask):
+    bsz,atten_dim = atten_enc.shape
+    assert(atten_dim==self.hparams.d_model)
+    packed_atten_enc = pack_padded_sequence(atten_enc, x_len, batch_first=True)
+    context_output, (ht, ct) = self.layer(packed_atten_enc)
+    context_output, _ = pad_packed_sequence(context_output, batch_first=True,
+      padding_value=self.hparams.pad_id)
+    assert(context_output.shape[0]==bsz and context_output.shape[1]==self.hparams.d_ctx_embed*2)
     return context_output
 
-class Decoder(nn.Module):
+class UttDecoder(nn.Module):
   def __init__(self, hparams, word_emb):
-    super(Decoder, self).__init__()
-    
+    super(UttDecoder, self).__init__()
+    self.hparams = hparams
+    self.lstm_dim = self.hparams.d_word_vec + 2*self.hparams.d_ctx_embed
+    self.layer = nn.LSTMCell(lstm_dim, self.hparams.d_dec_out)
+    self.dropout = nn.Dropout(self.hparams.dropout)
+    self.word_emb = word_emb
+    self.readout = nn.Linear(hparams,d_dec_out, hparams.src_vocab_size,bias= False) 
 
-  def forward(self, x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_len, x_train, x_len,x_old_mask):
+
+  def forward(self, x_train, x_mask, x_len, context_left_right, y_train, y_mask, y_len,dec_init):
     # get decoder init state and cell, use x_ct
-    """
-    x_enc: [batch_size, max_x_len, d_model * 2]
-    """
+    x_wrd_emb = self.word_emb(x_train[:, :-1])
+    bsz_x,x_max_len,x_dim = x_wrd_emb.shape
+    bsz_c,c_dim = context_left_right.shape
+    assert(bsz_x==bsz_c)
+    assert(x_dim ==self.hparams.d_word_vec)
+    assert(c_dim== 2*self.hparams.d_ctx_embed)
+    rep_context = context_left_right.unsqueeze(1)
+    rep_context = rep_context.repeat(1,x_max_len,1)
+    dec_inp = torch.cat([x_wrd_emb,rep_context], dim=-1)
+
+    pre_readouts = []
+    logits = []
+
+    hidden = dec_init
+
+
+    for t in range(x_max_len-1):
+      dec_inp_step = dec_inp[:, t, :]
+      h_t, c_t = self.layer(dec_inp_step, hidden)
+      pre_readout = self.dropout(h_t)
+      pre_readouts.append(pre_readout)
+      hidden = (h_t, c_t)
+
+    # [len_y, batch_size, trg_vocab_size]
+    logits = self.readout(torch.stack(pre_readouts)).transpose(0, 1).contiguous()
+    return logits
+
     
     
-   
+  def step(self, x_word_emb, context_left_right, dec_state):
+    #y_emb_tm1 = self.word_emb(y_tm1)
+    y_input = torch.cat([x_word_emb, context_left_right], dim=1)
+    h_t, c_t = self.layer(y_input, dec_state)
+    logits = self.readout(h_t)
+
+    return logits, (h_t, c_t)
+
+
+class GLCLM(nn.Module):
+  def __init__(self,hparams,data) -> None:
+      super(GLCLM,self).__init__()
+      self.hparams = hparams
+      self.utt_enc = UttEncoder(hparams)
+      self.ctx_enc = ContextEncoder(hparams)
+      self.utt_dec = UttDecoder(hparams,word_emb=self.utt_enc.word_emb)
+      self.data = data
+
+  def forward(x_train, )
