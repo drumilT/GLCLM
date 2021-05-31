@@ -86,13 +86,10 @@ class ContextEncoder(nn.Module):
                          dropout=hparams.dropout)
     self.dropout = nn.Dropout(self.hparams.dropout)
 
-  def forward(self, atten_enc,x_len,enc_mask):
+  def forward(self, atten_enc,enc_mask):
     bsz,atten_dim = atten_enc.shape
     assert(atten_dim==self.hparams.d_model)
-    packed_atten_enc = pack_padded_sequence(atten_enc, x_len, batch_first=True)
-    context_output, (ht, ct) = self.layer(packed_atten_enc)
-    context_output, _ = pad_packed_sequence(context_output, batch_first=True,
-      padding_value=self.hparams.pad_id)
+    context_output, (ht, ct) = self.layer(atten_enc)
     assert(context_output.shape[0]==bsz and context_output.shape[1]==self.hparams.d_ctx_embed*2)
     return context_output
 
@@ -101,13 +98,13 @@ class UttDecoder(nn.Module):
     super(UttDecoder, self).__init__()
     self.hparams = hparams
     self.lstm_dim = self.hparams.d_word_vec + 2*self.hparams.d_ctx_embed
-    self.layer = nn.LSTMCell(lstm_dim, self.hparams.d_dec_out)
+    self.layer = nn.LSTMCell(self.lstm_dim, self.hparams.d_dec_out)
     self.dropout = nn.Dropout(self.hparams.dropout)
     self.word_emb = word_emb
-    self.readout = nn.Linear(hparams,d_dec_out, hparams.src_vocab_size,bias= False) 
+    self.readout = nn.Linear(self.hparams.d_dec_out, self.hparams.src_vocab_size,bias= False) 
 
 
-  def forward(self, x_train, x_mask, x_len, context_left_right, y_train, y_mask, y_len,dec_init):
+  def forward(self, x_train, x_mask, x_len, context_left_right,dec_init=None):
     # get decoder init state and cell, use x_ct
     x_wrd_emb = self.word_emb(x_train[:, :-1])
     bsz_x,x_max_len,x_dim = x_wrd_emb.shape
@@ -124,6 +121,9 @@ class UttDecoder(nn.Module):
 
     hidden = dec_init
 
+    if dec_init is None:
+      hidden = (torch.zeros_like(bsz_x,self.hparams.d_dec_out),torch.zeros_like(bsz_x,self.hparams.d_dec_out))
+
 
     for t in range(x_max_len-1):
       dec_inp_step = dec_inp[:, t, :]
@@ -135,8 +135,6 @@ class UttDecoder(nn.Module):
     # [len_y, batch_size, trg_vocab_size]
     logits = self.readout(torch.stack(pre_readouts)).transpose(0, 1).contiguous()
     return logits
-
-    
     
   def step(self, x_word_emb, context_left_right, dec_state):
     #y_emb_tm1 = self.word_emb(y_tm1)
@@ -156,4 +154,19 @@ class GLCLM(nn.Module):
       self.utt_dec = UttDecoder(hparams,word_emb=self.utt_enc.word_emb)
       self.data = data
 
-  def forward(x_train, )
+  def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask,
+    y_len, y_pos_emb_idxs, y_sampled, y_sampled_mask, y_sampled_len,
+    eval=False):
+    
+
+    bsz,max_len = x_train.shape
+    _,S = self.utt_enc.forward(x_train,x_mask,x_len)
+    LR = self.ctx_enc.forward(S)
+
+    if eval:
+      logits = self.utt_dec.forward(x_train,x_mask,x_len,LR)
+      assert(logits.shape[0]==bsz and logits.shape[1]==max_len  and logits.shape[2]==  self.hparams.src_vocab_size)
+      output = logits.argmax(-1)
+      return output
+    else:
+      
