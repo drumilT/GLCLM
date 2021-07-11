@@ -4,7 +4,8 @@ from torch.autograd import Variable
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import torch.nn.functional as F
-
+from torch.nn import BCEWithLogitsLoss
+import torch.optim as optim
 
 class Attn(nn.Module):
   def __init__(self, hparams):
@@ -136,10 +137,13 @@ class UttDecoder(nn.Module):
     logits = self.readout(torch.stack(pre_readouts)).transpose(0, 1).contiguous()
     return logits
     
-  def step(self, x_word_emb, context_left_right, dec_state):
+  def step(self, x_word_emb, context_left_right, dec_state=None):
     #y_emb_tm1 = self.word_emb(y_tm1)
     y_input = torch.cat([x_word_emb, context_left_right], dim=1)
-    h_t, c_t = self.layer(y_input, dec_state)
+    if dec_state is not None:
+      h_t, c_t = self.layer(y_input, dec_state)
+    else:
+      h_t, c_t = self.layer(y_input)
     logits = self.readout(h_t)
 
     return logits, (h_t, c_t)
@@ -153,20 +157,28 @@ class GLCLM(nn.Module):
       self.ctx_enc = ContextEncoder(hparams)
       self.utt_dec = UttDecoder(hparams,word_emb=self.utt_enc.word_emb)
       self.data = data
+      self.criteron = BCEWithLogitsLoss()
+      #self.optimizer = optim.Adam()
 
   def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask,
     y_len, y_pos_emb_idxs, y_sampled, y_sampled_mask, y_sampled_len,
     eval=False):
-    
 
     bsz,max_len = x_train.shape
     _,S = self.utt_enc.forward(x_train,x_mask,x_len)
     LR = self.ctx_enc.forward(S)
 
-    if eval:
+    if eval: 
       logits = self.utt_dec.forward(x_train,x_mask,x_len,LR)
       assert(logits.shape[0]==bsz and logits.shape[1]==max_len  and logits.shape[2]==  self.hparams.src_vocab_size)
       output = logits.argmax(-1)
-      return output
+      return logits,output,-1
     else:
-      
+      #self.optimizer.zero_grad()
+      logits = self.utt_dec.forward(x_train,x_mask,x_len,LR)
+      assert(logits.shape[0]==bsz and logits.shape[1]==max_len  and logits.shape[2]==  self.hparams.src_vocab_size)
+      output = logits.argmax(-1)
+      loss = self.criteron(logits,y_train)
+      #loss.backward()
+      #self.optimizer.step()
+      return logits,output,loss
