@@ -160,9 +160,8 @@ class GLCLM(nn.Module):
       self.criteron = BCEWithLogitsLoss()
       #self.optimizer = optim.Adam()
 
-  def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask,
-    y_len, y_pos_emb_idxs, y_sampled, y_sampled_mask, y_sampled_len,
-    eval=False):
+  def forward(self, x_train, x_mask, x_len, y_train, y_mask,
+    y_len, eval=False):
 
     bsz,max_len = x_train.shape
     _,S = self.utt_enc.forward(x_train,x_mask,x_len)

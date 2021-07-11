@@ -112,6 +112,14 @@ parser.add_argument("--test_src_file", type=str, default=None,
     help="source test file")
 parser.add_argument("--test_trg_file", type=str, default=None, 
     help="target test file")
+
+parser.add_argument("--src_speaker_limits", type=str, default=None, 
+    help="train speaker start and end")
+parser.add_argument("--dev_speaker_limits", type=str, default=None, 
+    help="dev speaker start and end")
+parser.add_argument("--test_speaker_limits", type=str, default=None, 
+    help="test speaker start and end")
+
 parser.add_argument("--src_char_vocab_from", type=str, default=None, 
     help="source char vocab file")
 parser.add_argument("--src_char_vocab_size", type=str, default=None, 
@@ -439,7 +447,7 @@ def train():
     #print(x_count)
     target_words += (x_count - batch_size)
     total_sents += batch_size
-    pred_logits,output,loss = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask, y_len, y_pos_emb_idxs, y_sampled, y_sampled_mask, y_sampled_len)
+    pred_logits,output,loss = model.forward(x_train, x_mask, x_len, y_train, y_mask, y_len)
 
     
     total_pred_length += x_len
