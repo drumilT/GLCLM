@@ -235,7 +235,7 @@ config_file = "config.config_{}".format(args.dataset)
 params = importlib.import_module(config_file).params_main
 args = argparse.Namespace(**params, **vars(args))
 
-def eval(model, data, crit, step, hparams, eval_bleu=False,
+def eval(model, data, crit, step, hparams, eval_wer=False,
          valid_batch_size=20, tr_logits=None):
   print("Eval at step {0}. valid_batch_size={1}".format(step, valid_batch_size))
 
@@ -249,7 +249,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
 
   valid_sents = 0
   valid_bleu = None
-  if eval_bleu:
+  if eval_wer:
     valid_hyp_file = os.path.join(args.output_dir, "dev.trans_{0}".format(step))
     out_file = open(valid_hyp_file, 'w', encoding='utf-8')
 
@@ -290,7 +290,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     if end_of_epoch:
       break
   # BLEU eval
-  if eval_bleu:
+  if eval_wer:
     hyps = []
     dev_batch_size = hparams.valid_batch_size if hparams.beam_size == 1 else 1
     while True:
@@ -325,12 +325,12 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   log_string += " total={0:<6.2f}".format(valid_loss / valid_sents)
   log_string += " pred_acc={0:<5.4f}".format(valid_acc / valid_words)
   log_string += " pred_len={}".format(total_pred_length / valid_sents)
-  if eval_bleu:
+  if eval_wer:
     out_file.close()
     ref_file = args.dev_trg_ref
-    bleu_str = subprocess.getoutput(
-      "python src/indi_bleu.py ./{0} ./{1}".format(valid_hyp_file,"dev"))
-    log_string += "\n{}".format(bleu_str)
+    wer_str = subprocess.getoutput(
+      "python make_outputs_parallel ./{0} ./{1}".format(valid_hyp_file,"dev"))
+    log_string += "\n{}".format(wer_str.splitlines[-1])
 
   print(log_string)
   model.train()
