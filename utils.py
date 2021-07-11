@@ -57,7 +57,6 @@ def get_performance(crit, pred_logits, labels, hparams, x_len, sum_loss=True):
     pred_loss = pred_loss / x_len_t
 
   pred_loss = pred_loss.sum()
-  #loss = noise_loss.sum()
   return pred_loss,pred_acc
 
 def count_params(params):

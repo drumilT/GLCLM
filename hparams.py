@@ -12,7 +12,7 @@ class HParams(object):
     self.eos_id = 3
 
     self.batcher = "sent"
-    self.batch_size = 32
+    #self.batch_size = 32
     self.src_vocab_size = None
     self.trg_vocab_size = None
 
